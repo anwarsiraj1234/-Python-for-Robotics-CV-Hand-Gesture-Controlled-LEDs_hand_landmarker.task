@@ -1,0 +1,433 @@
+# ============================================================
+# TITLE: How to Control LEDs with Hand Gestures Using
+#        MediaPipe, OpenCV, and Arduino
+#
+# MADE BY: SIR ANWAR SIRAJ
+#          DS & AI ROBOTICS
+# ============================================================
+
+
+
+
+import cv2
+import mediapipe as mp
+import serial
+import time
+import os
+
+
+# ============================================================
+# ARDUINO
+# ============================================================
+
+PORT = "COM4"
+BAUDRATE = 9600
+
+arduino = serial.Serial(
+    port=PORT,
+    baudrate=BAUDRATE,
+    timeout=1
+)
+
+print("Arduino connected successfully!")
+print("Port:", PORT)
+print("Baud rate:", BAUDRATE)
+
+time.sleep(2)
+
+
+# ============================================================
+# MEDIAPIPE MODEL
+# ============================================================
+
+MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "hand_landmarker.task"
+)
+
+print("Model path:")
+print(MODEL_PATH)
+
+if not os.path.isfile(MODEL_PATH):
+
+    print()
+    print("ERROR!")
+    print("hand_landmarker.task was NOT found.")
+    print()
+    print("Put hand_landmarker.task in this folder:")
+    print(os.path.dirname(os.path.abspath(__file__)))
+
+    arduino.close()
+    raise SystemExit
+
+
+print("Model found successfully!")
+
+
+# ============================================================
+# MEDIAPIPE TASKS
+# ============================================================
+
+BaseOptions = mp.tasks.BaseOptions
+
+HandLandmarker = mp.tasks.vision.HandLandmarker
+
+HandLandmarkerOptions = (
+    mp.tasks.vision.HandLandmarkerOptions
+)
+
+RunningMode = mp.tasks.vision.RunningMode
+
+
+# ============================================================
+# HAND LANDMARKER OPTIONS
+# ============================================================
+
+options = HandLandmarkerOptions(
+
+    base_options=BaseOptions(
+        model_asset_path=MODEL_PATH
+    ),
+
+    running_mode=RunningMode.IMAGE,
+
+    num_hands=1,
+
+    min_hand_detection_confidence=0.5,
+
+    min_hand_presence_confidence=0.5,
+
+    min_tracking_confidence=0.5
+)
+
+
+# ============================================================
+# CREATE DETECTOR
+# ============================================================
+
+detector = HandLandmarker.create_from_options(
+    options
+)
+
+print("MediaPipe Hand Landmarker started successfully!")
+
+
+# ============================================================
+# FINGER DETECTION
+# ============================================================
+
+def detect_fingers(hand_landmarks):
+
+    finger_states = [0, 0, 0, 0, 0]
+
+    # --------------------------------------------------------
+    # THUMB
+    # --------------------------------------------------------
+
+    if (
+        hand_landmarks[4].x
+        <
+        hand_landmarks[3].x
+    ):
+        finger_states[0] = 1
+
+
+    # --------------------------------------------------------
+    # INDEX
+    # --------------------------------------------------------
+
+    if (
+        hand_landmarks[8].y
+        <
+        hand_landmarks[6].y
+    ):
+        finger_states[1] = 1
+
+
+    # --------------------------------------------------------
+    # MIDDLE
+    # --------------------------------------------------------
+
+    if (
+        hand_landmarks[12].y
+        <
+        hand_landmarks[10].y
+    ):
+        finger_states[2] = 1
+
+
+    # --------------------------------------------------------
+    # RING
+    # --------------------------------------------------------
+
+    if (
+        hand_landmarks[16].y
+        <
+        hand_landmarks[14].y
+    ):
+        finger_states[3] = 1
+
+
+    # --------------------------------------------------------
+    # PINKY
+    # --------------------------------------------------------
+
+    if (
+        hand_landmarks[20].y
+        <
+        hand_landmarks[18].y
+    ):
+        finger_states[4] = 1
+
+
+    return finger_states
+
+
+# ============================================================
+# DRAW LANDMARKS
+# ============================================================
+
+CONNECTIONS = [
+
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+
+    (0, 5),
+    (5, 6),
+    (6, 7),
+    (7, 8),
+
+    (0, 9),
+    (9, 10),
+    (10, 11),
+    (11, 12),
+
+    (0, 13),
+    (13, 14),
+    (14, 15),
+    (15, 16),
+
+    (0, 17),
+    (17, 18),
+    (18, 19),
+    (19, 20),
+
+    (5, 9),
+    (9, 13),
+    (13, 17)
+]
+
+
+def draw_hand(image, landmarks):
+
+    height, width, _ = image.shape
+
+
+    # Draw points
+
+    for landmark in landmarks:
+
+        x = int(landmark.x * width)
+        y = int(landmark.y * height)
+
+        cv2.circle(
+            image,
+            (x, y),
+            5,
+            (0, 255, 0),
+            -1
+        )
+
+
+    # Draw lines
+
+    for start, end in CONNECTIONS:
+
+        x1 = int(landmarks[start].x * width)
+        y1 = int(landmarks[start].y * height)
+
+        x2 = int(landmarks[end].x * width)
+        y2 = int(landmarks[end].y * height)
+
+        cv2.line(
+            image,
+            (x1, y1),
+            (x2, y2),
+            (0, 255, 0),
+            2
+        )
+
+
+# ============================================================
+# CAMERA
+# ============================================================
+
+cap = cv2.VideoCapture(0)
+
+
+if not cap.isOpened():
+
+    print("ERROR: Camera not found!")
+
+    detector.close()
+    arduino.close()
+
+    raise SystemExit
+
+
+print()
+print("====================================")
+print("HAND GESTURE LED CONTROL")
+print("====================================")
+print("Thumb  -> LED Pin 8")
+print("Index  -> LED Pin 9")
+print("Middle -> LED Pin 10")
+print("Ring   -> LED Pin 11")
+print("Pinky  -> LED Pin 12")
+print()
+print("Press ESC to exit.")
+print("====================================")
+
+
+# ============================================================
+# MAIN LOOP
+# ============================================================
+
+try:
+
+    while cap.isOpened():
+
+        success, image = cap.read()
+
+        if not success:
+            print("Camera frame error.")
+            break
+
+
+        # Mirror camera
+
+        image = cv2.flip(image, 1)
+
+
+        # BGR -> RGB
+
+        rgb_image = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
+
+
+        # MediaPipe image
+
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB,
+            data=rgb_image
+        )
+
+
+        # Detect hand
+
+        results = detector.detect(mp_image)
+
+
+        # Default: all LEDs OFF
+
+        fingers_state = [0, 0, 0, 0, 0]
+
+
+        # ====================================================
+        # HAND FOUND
+        # ====================================================
+
+        if results.hand_landmarks:
+
+            hand_landmarks = results.hand_landmarks[0]
+
+
+            # Draw hand
+
+            draw_hand(
+                image,
+                hand_landmarks
+            )
+
+
+            # Detect fingers
+
+            fingers_state = detect_fingers(
+                hand_landmarks
+            )
+
+
+        # ====================================================
+        # SEND 5 BYTES TO ARDUINO
+        # ====================================================
+
+        arduino.write(
+            bytes(fingers_state)
+        )
+
+
+        # ====================================================
+        # DISPLAY
+        # ====================================================
+
+        text = (
+            f"Thumb:{fingers_state[0]} "
+            f"Index:{fingers_state[1]} "
+            f"Middle:{fingers_state[2]} "
+            f"Ring:{fingers_state[3]} "
+            f"Pinky:{fingers_state[4]}"
+        )
+
+
+        cv2.putText(
+            image,
+            text,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2
+        )
+
+
+        cv2.imshow(
+            "Hand Gesture LED Control",
+            image
+        )
+
+
+        # ESC
+
+        if cv2.waitKey(5) & 0xFF == 27:
+            break
+
+
+# ============================================================
+# CLEANUP
+# ============================================================
+
+finally:
+
+    # Turn LEDs OFF
+
+    try:
+        arduino.write(
+            bytes([0, 0, 0, 0, 0])
+        )
+    except:
+        pass
+
+
+    cap.release()
+
+    cv2.destroyAllWindows()
+
+    detector.close()
+
+    arduino.close()
+
+    print("Program stopped.")

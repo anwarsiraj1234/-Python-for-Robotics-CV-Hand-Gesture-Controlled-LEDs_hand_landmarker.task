@@ -1,0 +1,43 @@
+//MADE BY SIR ANWAR SIRAJ DS & AI ROBOTICS 
+// ===== ARDUINO LED GESTURE CONTROL (PINS 8-12) =====
+
+// Pin mappings for 5 LEDs corresponding to each finger
+const int THUMB_PIN  = 8;
+const int INDEX_PIN  = 9;
+const int MIDDLE_PIN = 10;
+const int RING_PIN   = 11;
+const int PINKY_PIN  = 12;
+
+// Array for convenient loop iteration
+const int ledPins[5] = {THUMB_PIN, INDEX_PIN, MIDDLE_PIN, RING_PIN, PINKY_PIN};
+
+void setup() {
+  // Initialize serial communication at 9600 baud rate (matches Python)
+  Serial.begin(9600);
+
+  // Configure LED pins as outputs
+  for (int i = 0; i < 5; i++) {
+    pinMode(ledPins[i], OUTPUT);
+    digitalWrite(ledPins[i], LOW); // Ensure all LEDs start OFF
+  }
+}
+
+void loop() {
+  // Check if serial data is available from Python
+  if (Serial.available() > 0) {
+    // Read incoming string until newline ('\n')
+    String data = Serial.readStringUntil('\n');
+    data.trim(); // Remove extra whitespace or carriage returns
+
+    // Validate that we received exactly 5 characters (e.g., "10100")
+    if (data.length() == 5) {
+      for (int i = 0; i < 5; i++) {
+        if (data.charAt(i) == '1') {
+          digitalWrite(ledPins[i], HIGH); // Turn LED ON
+        } else if (data.charAt(i) == '0') {
+          digitalWrite(ledPins[i], LOW);  // Turn LED OFF
+        }
+      }
+    }
+  }
+}

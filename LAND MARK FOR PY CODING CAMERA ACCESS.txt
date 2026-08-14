@@ -1,0 +1,90 @@
+import urllib.request, os
+import cv2
+import mediapipe as mp
+import serial
+import time
+
+# ===== MODEL DOWNLOAD =====
+if not os.path.exists("hand_landmarker.task"):
+    print("Downloading model... 2 minutes lagain ge")
+    urllib.request.urlretrieve("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", "hand_landmarker.task")
+    print("Download complete!")
+
+# ===== ARDUINO =====
+PORT = "COM4" # <-- Device Manager me dekh kar apna COM port yahan likhen
+BAUDRATE = 9600
+
+try:
+    arduino = serial.Serial(port=PORT, baudrate=BAUDRATE, timeout=1)
+    time.sleep(2)
+    print("Arduino connected successfully!")
+    print("Port:", PORT)
+except:
+    print("ERROR: Arduino not found. COM port check karen")
+    exit()
+
+# ===== MEDIAPIPE MODEL =====
+MODEL_PATH = "hand_landmarker.task"
+print("Model path:", os.path.abspath(MODEL_PATH))
+
+# ===== MEDIAPIPE TASKS =====
+BaseOptions = mp.tasks.BaseOptions
+HandLandmarker = mp.tasks.vision.HandLandmarker
+HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
+RunningMode = mp.tasks.vision.RunningMode
+
+options = HandLandmarkerOptions(
+    base_options=BaseOptions(model_asset_path=MODEL_PATH),
+    running_mode=RunningMode.VIDEO,
+    num_hands=1,
+    min_hand_detection_confidence=0.5
+)
+detector = HandLandmarker.create_from_options(options)
+print("MediaPipe Hand Landmarker started successfully!")
+
+# ===== FINGER DETECTION =====
+def detect_fingers(hand_landmarks):
+    finger_states = [0, 0, 0, 0, 0] # T, I, M, R, P
+    if hand_landmarks[4].x < hand_landmarks[3].x: finger_states[0] = 1 # Thumb
+    if hand_landmarks[8].y < hand_landmarks[6].y: finger_states[1] = 1 # Index
+    if hand_landmarks[12].y < hand_landmarks[10].y: finger_states[2] = 1 # Middle
+    if hand_landmarks[16].y < hand_landmarks[14].y: finger_states[3] = 1 # Ring
+    if hand_landmarks[20].y < hand_landmarks[18].y: finger_states[4] = 1 # Pinky
+    return finger_states
+
+# ===== CAMERA =====
+cap = cv2.VideoCapture(0) # 0 na chale to 1 ya 2 try karen
+
+if not cap.isOpened():
+    print("ERROR: Camera not found! 0, 1, 2 try karen")
+    exit()
+
+print("Camera ON ho gaya! ESC dabane se band hoga")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+
+    result = detector.detect_for_video(mp_image, int(time.time()*1000))
+
+    if result.hand_landmarks:
+        for hand_landmarks in result.hand_landmarks:
+            fingers = detect_fingers(hand_landmarks)
+            data_to_send = f"{fingers[0]}{fingers[1]}{fingers[2]}{fingers[3]}{fingers[4]}\n"
+            arduino.write(data_to_send.encode())
+            print("Sent:", data_to_send.strip())
+            cv2.putText(frame, f"Fingers: {sum(fingers)}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+
+    cv2.imshow("Hand Tracking", frame)
+
+    if cv2.waitKey(1) & 0xFF == 27: # ESC key
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+arduino.close()
+input("Press Enter to exit...")
